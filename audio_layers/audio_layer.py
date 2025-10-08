@@ -8,9 +8,9 @@ from scipy.signal import butter, lfilter
 import random
 
 # Audio constants
-fs = 22050  # Sample rate consistent with system
-step_dur = 0.25
-samples_per_step = int(fs * step_dur)
+fs = 22050
+step_duration = 0.25
+samples_per_step = int(fs * step_duration)
 
 # CyclicLR callback for training learning rate schedules
 class CyclicLR(Callback):
