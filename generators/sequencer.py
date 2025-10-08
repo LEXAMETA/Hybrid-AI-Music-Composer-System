@@ -1,4 +1,3 @@
-
 import numpy as np
 
 # Audio constants
@@ -25,13 +24,31 @@ class StepSequencer:
             np.ndarray: Stereo audio buffer for this step, shape (samples_per_step, 2).
         """
         stereo_buffer = np.zeros((samples_per_step, 2), dtype=np.float32)
+        
+        # --- Merged Logging (Start) ---
+        print(f"[Sequencer] Starting step {self.current_step}/{self.pattern_length}. Stereo buffer initialized - min: {stereo_buffer.min():.4f}, max: {stereo_buffer.max():.4f}")
+        # --- Merged Logging (End) ---
+
         for layer in self.layers:
+            # Assuming 'get_precomputed_step' is the correct method based on the first snippet.
+            # If you intended 'generate_for_step', you'll need to update your AudioLayer class.
             step_audio = layer.get_precomputed_step(self.current_step)
+            
             if step_audio is not None:
+                # --- Merged Logging (Start) ---
+                print(f"[Sequencer] Layer '{layer.name}' audio - min: {step_audio.min():.4f}, max: {step_audio.max():.4f}, mean: {step_audio.mean():.4f}")
+                # --- Merged Logging (End) ---
                 stereo_buffer += step_audio
+
+        # --- Merged Logging (Start) ---
+        print(f"[Sequencer] Mixed stereo buffer (pre-clip) - min: {stereo_buffer.min():.4f}, max: {stereo_buffer.max():.4f}, mean: {stereo_buffer.mean():.4f}")
+        # --- Merged Logging (End) ---
+
         self.current_step = (self.current_step + 1) % self.pattern_length
-        # Clamp to [-1,1] to avoid clipping
+        
+        # Clamp to [-1,1] to avoid clipping (restored from original snippet)
         stereo_buffer = np.clip(stereo_buffer, -1.0, 1.0)
+        
         return stereo_buffer
 
 class ArrangementController:
