@@ -1,6 +1,11 @@
 
 import numpy as np
 
+# Audio constants
+fs = 22050
+step_duration = 0.25
+samples_per_step = int(fs * step_duration)
+
 class StepSequencer:
     def __init__(self, layers, pattern_length):
         """
