@@ -1,12 +1,12 @@
+# /Hybrid-AI-Music-Composer/audio_layers/train_helpers.py
 
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
+# Assuming build_decoder_with_instincts is available via AudioLayer or an explicit import if this file runs independently
 
 class CyclicLR(tf.keras.callbacks.Callback):
-    """
-    Cyclical learning rate scheduler.
-    """
+    # ... (CyclicLR implementation remains the same)
     def __init__(self, base_lr=1e-5, max_lr=1e-3, step_size=1000):
         super().__init__()
         self.base_lr = base_lr
@@ -30,23 +30,14 @@ class CyclicLR(tf.keras.callbacks.Callback):
             K.set_value(self.model.optimizer.lr, lr)
 
 def create_synthetic_dataset(audio_layer, n_samples=400):
-    """
-    Create a synthetic dataset for training based on current AudioLayer parameters.
-
-    Returns:
-        tuple: features (X), waveforms (Y)
-    """
+    # ... (Function body remains the same, relies on AudioLayer.generate_textured_sound)
     X = []
     Y = []
     for _ in range(n_samples):
-        # Random timbre shift and FM parameters within reasonable ranges
         timbre_shift = np.random.uniform(-0.45, 0.45)
         fm_freq = np.random.uniform(3.0, 8.0)
         fm_index = np.random.uniform(2.0, 12.0)
-
-        # Harmonic weights as Dirichlet distribution
         harmonic_weights = np.random.dirichlet(np.ones(audio_layer.harmonics))
-
         wave = audio_layer.generate_textured_sound(
             audio_layer.base_freq * (1.0 + timbre_shift),
             harmonic_weights,
@@ -55,8 +46,7 @@ def create_synthetic_dataset(audio_layer, n_samples=400):
             fm_index,
             timbre_shift
         )
-        wave /= (np.max(np.abs(wave)) + 1e-9)
-
+        # Normalization is handled inside generate_textured_sound
         features = np.concatenate([[timbre_shift, fm_freq, fm_index], harmonic_weights])
         X.append(features.astype(np.float32))
         Y.append(wave.astype(np.float32))
@@ -64,16 +54,7 @@ def create_synthetic_dataset(audio_layer, n_samples=400):
     return np.array(X, dtype=np.float32), np.array(Y, dtype=np.float32)
 
 def scale_features(features, scaler=None):
-    """
-    Scale features using provided StandardScaler or new scaler.
-
-    Args:
-        features (np.ndarray): Feature matrix.
-        scaler (StandardScaler): Optional pre-fitted scaler.
-
-    Returns:
-        tuple: (scaled_features, scaler)
-    """
+    # ... (Function body remains the same)
     if scaler is None:
         scaler = StandardScaler()
         scaled_features = scaler.fit_transform(features)
@@ -84,15 +65,6 @@ def scale_features(features, scaler=None):
 def train_audio_layer_model(audio_layer, epochs=30, batch_size=32, verbose=1):
     """
     Train the AudioLayer's neural decoder on its synthetic or combined datasets.
-
-    Args:
-        audio_layer (AudioLayer): The AudioLayer instance.
-        epochs (int): Training epochs.
-        batch_size (int): Mini-batch size.
-        verbose (int): Verbosity.
-
-    Returns:
-        tf.keras.Model: The trained model.
     """
     if audio_layer._train_X is None or audio_layer._train_Y is None:
         audio_layer._train_X, audio_layer._train_Y = create_synthetic_dataset(audio_layer)
@@ -102,13 +74,17 @@ def train_audio_layer_model(audio_layer, epochs=30, batch_size=32, verbose=1):
     audio_layer.scaler_mean = scaler.mean_
     audio_layer.scaler_std = scaler.scale_
 
-    audio_layer.model = audio_layer.model or audio_layer.build_model(
-        input_dim=scaled_X.shape[1], output_len=audio_layer._train_Y.shape[1])
+    # 🐛 Model building relies on a helper method that needs to be implemented or rely on audio_layer.train_model
+    # For compatibility, we rely on the internal logic now correctly pointing to the right model in audio_layer.py
+    if audio_layer.model is None:
+         # Calling the internal method which now points to the complex decoder
+         audio_layer.model = audio_layer.train_model(epochs=1, verbose=0, lr=1e-4) 
 
     # Setup the cyclic learning rate scheduler
     clr_cb = CyclicLR(base_lr=1e-5, max_lr=1e-3, step_size=200)
     early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
 
+    # Final fit (using scaled_X, _train_Y)
     history = audio_layer.model.fit(
         scaled_X,
         audio_layer._train_Y,
