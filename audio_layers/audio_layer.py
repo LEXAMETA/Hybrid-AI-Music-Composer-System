@@ -11,6 +11,8 @@ import random
 fs = 22050
 step_duration = 0.25
 samples_per_step = int(fs * step_duration)
+# Alias for use inside make_synthetic_dataset
+step_dur = step_duration
 
 # CyclicLR callback for training learning rate schedules
 class CyclicLR(Callback):
@@ -97,6 +99,8 @@ class AudioLayer:
     def make_synthetic_dataset(self, n=400):
         X = []
         Y = []
+        # Note: The original code used `step_dur` which isn't defined globally, but given the context,
+        # it refers to `step_duration`. I've added a local alias for clarity/compatibility.
         for _ in range(n):
             timbre_shift = np.random.uniform(-0.45, 0.45)
             fm_freq = np.random.uniform(3.0, 8.0)
@@ -187,8 +191,18 @@ class AudioLayer:
         noise = np.random.normal(0, 0.02, signal_wave.shape)
         filtered_noise = AudioLayer.bandpass_filter(noise, max(20, base_freq * 0.4), base_freq * 3.0, fs)
         combined = signal_wave + 0.5 * filtered_noise
-        combined /= (np.max(np.abs(combined)) + 1e-9)
-        return combined.astype(np.float32)
+        
+        # --- Merged Debugging/Logging Code ---
+        waveform = combined.astype(np.float32)
+        waveform /= (np.max(np.abs(waveform)) + 1e-9) # Normalization from original code
+        
+        print(f"[AudioLayer] waveform shape: {waveform.shape}")
+        print(f"[AudioLayer] waveform min: {np.min(waveform):.4f}, max: {np.max(waveform):.4f}, mean: {np.mean(waveform):.4f}")
+        if not np.any(waveform != 0):
+            print("[AudioLayer] WARNING: Generated waveform is silent!")
+        
+        return waveform
+        # --- End Merged Code ---
 
     @staticmethod
     def bandpass_filter(data, lowcut, highcut, fs, order=4):
