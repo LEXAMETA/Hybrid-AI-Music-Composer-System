@@ -1,111 +1,94 @@
-import numpy as np
-# Assuming the existence of these external modules
-# from audio_layers.audio_layer import AudioLayer
-# from style_transfer.dataset_utils import merge_datasets, normalize_features, validate_dataset_shapes
-# from style_transfer.wav_preprocessing import create_feature_dataset
+# /HybridAI-Music-Composer/style_transfer/style_adapt.py
 
-# Placeholder definitions for classes/functions not provided, necessary for execution
+import numpy as np
+
+# --- MOCK PLACEHOLDERS (Replace with real imports in full system) ---
 class AudioLayer:
     def __init__(self, base_freq, pan=0.0, name="layer", num_instincts=3, harmonics=6):
         self.base_freq = base_freq
         self.name = name
-        self._train_X = np.zeros((1, 10)) # Placeholder
-        self._train_Y = np.zeros((1, 5512)) # Placeholder
+        self._train_X = None
+        self._train_Y = None
         self.scaler_mean = None
         self.scaler_std = None
         self.model = None
 
-    def make_synthetic_dataset(self):
-        # Mock implementation
-        self._train_X = np.random.rand(100, 10)
-        self._train_Y = np.random.rand(100, 5512)
-        return self._train_X, self._train_Y
-
-    def train_model(self, epochs=8):
-        print(f"[AudioLayer] Mock training for {epochs} epochs...")
-        return None # Mock model
-
-    def generate_adapted(self, features): # Mock method needed for the debug loop
-        # Mock audio generation - should return a segment of audio
-        return np.random.rand(features.shape[0], self._train_Y.shape[1]) * 2 - 1
-
-def merge_datasets(X1, Y1, X2, Y2): return np.concatenate([X1, X2]), np.concatenate([Y1, Y2])
-def normalize_features(X): 
-    class Scaler:
-        def __init__(self, mean, scale): self.mean_ = mean; self.scale_ = scale
-    return X, Scaler(X.mean(axis=0), X.std(axis=0) + 1e-9)
-def validate_dataset_shapes(X, Y): pass
-def create_feature_dataset(wav_path): return np.random.rand(50, 10), np.random.rand(50, 5512)
-
-
-class AudioLayerExt:
-    def __init__(self, base_layer: AudioLayer):
-        self.base_layer = base_layer
-        # Directly copy attributes from the base_layer to AudioLayerExt instance
-        # Note: This is generally discouraged for encapsulation, but follows the original snippet's pattern
-        self.__dict__.update(base_layer.__dict__)
-
-    def make_synthetic_dataset(self):
-        # Calls the base layer's dataset generation but updates self's attributes
-        X, Y = self.base_layer.make_synthetic_dataset()
+    def make_synthetic_dataset(self, n=100):
+        # Mock implementation: base layer features should match external features
+        X = np.random.rand(n, 17) # Assuming 1 (f0) + 2 (spec) + 13 (mfcc) = 16 features, plus 3 synth params = 19
+        Y = np.random.rand(n, 5512)
         self._train_X = X
         self._train_Y = Y
         return X, Y
 
     def train_model(self, epochs=8):
-        # Assuming the base layer's train_model uses the data/scalers set on self (via __dict__.update)
-        return self.base_layer.train_model(epochs=epochs)
+        print(f"[{self.name}] Mock training for {epochs} epochs...")
+        # In a real system, this would fit the model using self._train_X and self._train_Y
+        self.model = object() # Mock model instance
+        return self.model
+# The other utility functions are mocked or imported from dataset_utils/wav_preprocessing.
+
+from .dataset_utils import merge_datasets, normalize_features, validate_dataset_shapes
+from .wav_preprocessing import create_feature_dataset
+# ---------------------------------------------------------------------
+
+class AudioLayerExt:
+    def __init__(self, base_layer: AudioLayer):
+        self.base_layer = base_layer
+        # Delegate attributes to the base layer's properties (CRITICAL for Keras/TF access)
+        # In a real system, we must ensure base_layer is *already* trained or initialized
+        self.__dict__.update(base_layer.__dict__)
 
     def train_with_external_data(self, ext_features, ext_segments, epochs=8):
+        # 1. Ensure Base Layer's synthetic data is loaded/generated
         if self._train_X is None or self._train_Y is None:
-            # Need to call make_synthetic_dataset on the *extended* layer to correctly set _train_X/_Y
-            self.make_synthetic_dataset()
-
+            print("[StyleAdapt] Generating synthetic dataset for base layer...")
+            self.base_layer.make_synthetic_dataset() # Populates base_layer._train_X/_Y
+            self._train_X = self.base_layer._train_X # Copy to self
+            self._train_Y = self.base_layer._train_Y # Copy to self
+        
+        # 2. Validate shapes
         validate_dataset_shapes(self._train_X, self._train_Y)
         validate_dataset_shapes(ext_features, ext_segments)
 
+        # 3. Check feature dimension consistency (CRITICAL)
         if self._train_X.shape[1] != ext_features.shape[1]:
-            raise ValueError("Feature dimension mismatch between datasets")
+            raise ValueError(f"Feature dimension mismatch: Base={self._train_X.shape[1]}, Ext={ext_features.shape[1]}")
         if self._train_Y.shape[1] != ext_segments.shape[1]:
-            raise ValueError("Segment length mismatch between datasets")
+            raise ValueError(f"Segment length mismatch: Base={self._train_Y.shape[1]}, Ext={ext_segments.shape[1]}")
 
+        # 4. Merge Datasets
+        # Note: Merging synthetic features (which include synth params) and external features (which are audio features) 
+        # is the main complexity here. For now, we assume the synth features were designed to match the external features' dimension.
+        # This will need careful attention in the final AudioLayer implementation.
         merged_X, merged_Y = merge_datasets(self._train_X, self._train_Y, ext_features, ext_segments)
+
+        # 5. Normalize Features
         scaled_X, scaler = normalize_features(merged_X)
 
+        # 6. Update internal state with merged, scaled data and scaler params
         self._train_X = scaled_X
         self._train_Y = merged_Y
         self.scaler_mean = scaler.mean_
         self.scaler_std = scaler.scale_
 
-        # 1. Perform the actual training
-        model = self.train_model(epochs=epochs)
-        
-        # 2. --- Merged Debugging/Logging Code (Post-Training Check) ---
-        print("\n--- Style Adaptation Post-Training Check ---")
-        
-        # Use a small set of the merged features for a quick generation check
-        test_features = merged_X[:5]
-        
-        # Assuming generate_adapted takes features and returns a waveform
-        try:
-            # The base_layer's methods are available via self due to __dict__.update
-            adapted_waveform = self.generate_adapted(test_features) 
-            
-            # Print the stats for each requested epoch check
-            # Since Keras training is done, we'll just check the result once.
-            for i in range(min(5, adapted_waveform.shape[0])):
-                 print(f"[StyleAdapt] Sample {i} adapted segment - min: {adapted_waveform[i].min():.4f}, max: {adapted_waveform[i].max():.4f}, mean: {adapted_waveform[i].mean():.4f}")
-            
-        except AttributeError:
-            print("[StyleAdapt] WARNING: 'generate_adapted' method not found on base layer. Skipping waveform check.")
+        # 7. Perform the actual training
+        print(f"[StyleAdapt] Merged dataset size: {len(self._train_X)}. Training model...")
+        model = self.base_layer.train_model(epochs=epochs) # Calls train_model with merged data/scalers on self
 
-        print("--- End Post-Training Check ---\n")
-        # 3. Return the trained model (or None if mock)
         return model
 
 def style_transfer_train(wav_path: str, base_audio_layer: AudioLayer, epochs=8):
+    """
+    Orchestrates the style adaptation training process.
+    """
     print(f"Loading WAV and extracting features: {wav_path}")
     ext_features, ext_segments = create_feature_dataset(wav_path)
+    
+    if ext_features.size == 0:
+        print("WARNING: No valid segments extracted from WAV. Aborting style transfer.")
+        return AudioLayerExt(base_audio_layer) # Return unadapted layer
+        
     print(f"Extracted {len(ext_features)} segments.")
 
     adapted_layer = AudioLayerExt(base_audio_layer)
