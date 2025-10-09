@@ -1,24 +1,20 @@
-# /HybridAI-Music-Composer/audio_layers/audio_layer.py
+# /HybridAI-Music-Composer/audio_layers/audio_layer.py (CRITICAL FIX: Filter Stability)
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Layer # Still needed for RecurrentAttention if not imported
+from tensorflow.keras.layers import Layer 
 from tensorflow.keras.callbacks import Callback
 from scipy.signal import butter, lfilter
 import random
 # 🐛 CRITICAL FIX: Import the complex model builder
 from .decoder_models import build_decoder_with_instincts
-# 🐛 Need to import CyclicLR if it's not in the main train_helpers (it is, but kept here for robustness)
 from .train_helpers import CyclicLR 
 
 # Audio constants
 fs = 22050
 step_duration = 0.25
 samples_per_step = int(fs * step_duration)
-step_dur = step_duration # Alias for use inside make_synthetic_dataset
-
-# Note: The inline definition of CyclicLR, RecurrentAttention, and build_decoder_with_instincts 
-# has been removed/commented out to rely on the imports and avoid the architecture conflict.
+step_dur = step_duration 
 
 # AudioLayer class
 class AudioLayer:
@@ -36,7 +32,7 @@ class AudioLayer:
         self.model = None
         self._precomputed = None
 
-    def make_synthetic_dataset(self, n=1000): # 🐛 Increased n to 1000 for better data coverage
+    def make_synthetic_dataset(self, n=1000): 
         X = []
         Y = []
         for _ in range(n):
@@ -48,8 +44,7 @@ class AudioLayer:
                 self.base_freq * (1.0 + timbre_shift),
                 harmonic_weights, step_dur, fm_freq, fm_index, timbre_shift)
             
-            # Note: Normalization is moved inside generate_textured_sound for debugging consistency
-            
+            # Ensure features are float32
             features = np.concatenate([[timbre_shift, fm_freq, fm_index], harmonic_weights])
             X.append(features.astype(np.float32))
             Y.append(wave.astype(np.float32))
@@ -58,7 +53,7 @@ class AudioLayer:
         self._train_Y = np.array(Y, dtype=np.float32)
         return self._train_X, self._train_Y
 
-    def train_model(self, epochs=50, batch_size=32, verbose=1, lr=1e-4): # Increased epochs to 50
+    def train_model(self, epochs=50, batch_size=32, verbose=1, lr=1e-4): 
         if self._train_X is None or self._train_Y is None:
             self.make_synthetic_dataset(n=1000)
 
@@ -76,7 +71,7 @@ class AudioLayer:
         )
 
         clr = CyclicLR(base_lr=1e-5, max_lr=lr * 10, step_size=200)
-        early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True) # Increased patience
+        early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True) 
 
         history = self.model.fit(train_X, self._train_Y, epochs=epochs, batch_size=batch_size,
                                  validation_split=0.1, callbacks=[clr, early_stop], verbose=verbose)
@@ -92,6 +87,7 @@ class AudioLayer:
             return None
         
         features = []
+        # ... (feature generation logic unchanged)
         for i in range(total_steps):
             seed = int((self.base_freq * 1000 + i) % 2**31)
             rnd = np.random.RandomState(seed)
@@ -109,7 +105,7 @@ class AudioLayer:
         preds = np.nan_to_num(preds)
         
         raw_max_abs = np.max(np.abs(preds))
-        print(f"[{self.name}] Precomp Raw Max Amp: {raw_max_abs:.6f}") # Debug Print
+        print(f"[{self.name}] Precomp Raw Max Amp: {raw_max_abs:.6f}") 
         
         max_abs = raw_max_abs + 1e-9
         
@@ -128,7 +124,7 @@ class AudioLayer:
         w = self._precomputed[step_idx % self._precomputed.shape[0]]
         
         # Simple panning automation
-        pan_mod = np.sin(step_idx * 0.03) * self.pan # Use layer's pan setting
+        pan_mod = np.sin(step_idx * 0.03) * self.pan 
         left = w * (1 - pan_mod) / 2.0
         right = w * (1 + pan_mod) / 2.0
         stereo = np.vstack([left, right]).T.astype(np.float32)
@@ -138,41 +134,48 @@ class AudioLayer:
     def generate_textured_sound(base_freq, harmonic_weights, dur, fm_freq, fm_index, timbre_shift):
         t = np.linspace(0, dur, int(fs * dur), endpoint=False)
         fm_mod = fm_index * np.sin(2 * np.pi * fm_freq * t)
-        signal_wave = np.zeros_like(t)
+        signal_wave = np.zeros_like(t, dtype=np.float32) # Explicitly float32
         for h, w in enumerate(harmonic_weights, start=1):
-            signal_wave += w * np.sin(2 * np.pi * (base_freq * h + fm_mod) * t)
+            # Ensure harmonic calculation is stable
+            signal_wave += w * np.sin(2 * np.pi * (base_freq * h + fm_mod) * t).astype(np.float32)
             
         # Envelope generation
-        envelope = np.ones_like(t)
+        envelope = np.ones_like(t, dtype=np.float32)
         attack = int(len(t) * 0.005)
         release = int(len(t) * 0.02)
         if attack > 0:
-            envelope[:attack] = np.linspace(0, 1, attack)
+            envelope[:attack] = np.linspace(0, 1, attack).astype(np.float32)
         if release > 0:
-            envelope[-release:] = np.linspace(1, 0, release)
+            envelope[-release:] = np.linspace(1, 0, release).astype(np.float32)
         signal_wave *= envelope
         
         # Noise generation
-        noise = np.random.normal(0, 0.02, signal_wave.shape)
+        noise = np.random.normal(0, 0.02, signal_wave.shape).astype(np.float32)
         filtered_noise = AudioLayer.bandpass_filter(noise, max(20, base_freq * 0.4), base_freq * 3.0, fs)
         
-        # 🐛 CRITICAL FIX: Reduce noise power from 0.5 to 0.2
+        # Combined signal
         combined = signal_wave + 0.2 * filtered_noise 
         
         waveform = combined.astype(np.float32)
         
-        # Normalization and Debugging prints (kept for analysis)
+        # Final Normalization
         max_abs = np.max(np.abs(waveform)) + 1e-9
         waveform /= max_abs 
-        
-        # print(f"[AudioLayer] Waveform gen: min {np.min(waveform):.4f}, max {np.max(waveform):.4f}")
         
         return waveform
 
     @staticmethod
     def bandpass_filter(data, lowcut, highcut, fs, order=4):
         nyq = 0.5 * fs
-        low = max(lowcut / nyq, 1e-6)
-        high = min(highcut / nyq, 0.999)
+        
+        # 🐛 CRITICAL FIX: Ensure normalized frequencies are strictly within (0, 1)
+        low = np.clip(lowcut / nyq, 1e-6, 0.999) 
+        high = np.clip(highcut / nyq, low + 1e-5, 0.999) # Ensure high > low
+        
+        if low >= high: # Safety fallback
+             return data * 0.0
+             
         b, a = butter(order, [low, high], btype='band')
+        
+        # lfilter without zi is safe here as this is a new block of noise
         return lfilter(b, a, data)
